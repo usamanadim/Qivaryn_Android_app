@@ -65,12 +65,15 @@ class SemVerTest {
     }
 
     @Test
-    fun `parses the beta tags this project ships`() {
-        assertEquals(SemVer(0, 1, 1, "beta"), SemVer.parse("v0.1.1-beta"))
-        assertEquals(SemVer(0, 1, 1, "beta.1"), SemVer.parse("0.1.1-beta.1"))
-        assertTrue(SemVer.parse("0.1.1-beta")!! < SemVer.parse("0.1.1")!!)
-        // A beta of the next version still beats the previous stable release.
-        assertTrue(SemVer.parse("0.2.0-beta")!! > SemVer.parse("0.1.1")!!)
+    fun `parses the tags this project ships`() {
+        // Current release: 0.1.0, pre-1.0 until every planned platform is ready.
+        assertEquals(SemVer(0, 1, 0), SemVer.parse("v0.1.0"))
+        assertTrue(SemVer.parse("v0.1.0")!!.isStable)
+        // The version line still understands beta tags between releases.
+        assertEquals(SemVer(0, 2, 0, "beta.1"), SemVer.parse("v0.2.0-beta.1"))
+        assertTrue(SemVer.parse("0.2.0-beta.1")!! < SemVer.parse("0.2.0")!!)
+        // 1.0.0 is the future feature-complete release and outranks every 0.x.
+        assertTrue(SemVer.parse("1.0.0")!! > SemVer.parse("0.9.9")!!)
     }
 
     @Test

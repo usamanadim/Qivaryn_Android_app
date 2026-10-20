@@ -33,7 +33,7 @@ convenient.
 **Conclusion:** the engine is not independently deployable. It ships *inside* the
 APK, so an engine fix, a dependency bump, or a bridge change all arrive as a new
 **app** release. The updater therefore updates the APK, and the two versions are
-surfaced separately in the UI (`Engine 0.1.0 · beta channel · build 2`) so it is
+surfaced separately in the UI (`Engine 0.1.0 · beta channel · build 3`) so it is
 always clear which engine a build carries.
 
 ### Rejected alternative: hot-swapping Python modules
@@ -60,13 +60,17 @@ runtime would let anyone redirect users to a foreign APK.
 
 | Channel | `UPDATE_CHANNEL` | Sees | Typical tag |
 | --- | --- | --- | --- |
-| Beta (this build) | `beta` | beta releases **and** stable releases | `v0.1.1-beta` |
-| Stable (future GA) | `stable` | stable releases only | `v0.2.0` |
+| Beta (this build) | `beta` | beta releases **and** stable releases | `v0.1.0`, `v0.2.0-beta.1` |
+| Stable (future GA) | `stable` | stable releases only | `v1.0.0` |
 
-A beta build following beta *and* stable is intentional: a tester on
-`0.1.1-beta` must still be able to move to `0.2.0` when the beta line is
-promoted. SemVer ordering already prevents a `0.2.0-beta` from being offered to
-someone already on `0.2.0`.
+The `0.x` line is the pre-1.0 beta line: the app targets a single platform today,
+and `1.0.0` is reserved for the feature-complete, all-platforms release. Every
+`0.x` tag is published as a pre-release, so a stable-channel build never sees it.
+
+A beta build following beta *and* stable is intentional: a tester on a `0.x`
+build must still be able to move to `1.0.0` once the app is feature-complete.
+SemVer ordering already prevents a `1.0.0-beta` from being offered to someone
+already on `1.0.0`.
 
 To build a stable-only app:
 
@@ -74,9 +78,9 @@ To build a stable-only app:
 .\gradlew.bat :app:assembleRelease -Pqivaryn.updateChannel=stable
 ```
 
-Releases tagged `-beta` are also treated as prereleases by the client even if
-the GitHub "pre-release" checkbox was forgotten, so a stable build never sees
-one by accident.
+A `-beta` suffix is still understood for releases between `0.x` builds, and the
+client treats any release GitHub marks as a pre-release as a beta even if the tag
+has no suffix, so a stable build never sees one by accident.
 
 ---
 
@@ -130,11 +134,11 @@ UpdateManager.check()                     UpdateManager.downloadAndInstall()
   `app/src/main/python/__init__.py` and compiled in as `ENGINE_VERSION`. The
   engine is baked into the APK, so a runtime Python lookup would add no accuracy
   and one more way to fail.
-- Released versions come from the tag (`v1.2.0` → `1.2.0`,
-  `v0.1.1-beta` → `0.1.1-beta`). `SemVer.parse` rejects anything it cannot fully
-  understand, so a stray tag can never be treated as a newer build.
-- Prereleases sort below their stable counterpart (`0.1.1-beta < 0.1.1`) while
-  still sorting above an older stable release (`0.2.0-beta > 0.1.1`).
+- Released versions come from the tag (`v1.0.0` → `1.0.0`,
+  `v0.2.0-beta.1` → `0.2.0-beta.1`). `SemVer.parse` rejects anything it cannot
+  fully understand, so a stray tag can never be treated as a newer build.
+- Prereleases sort below their stable counterpart (`0.2.0-beta.1 < 0.2.0`) while
+  still sorting above an older stable release (`0.2.0-beta > 0.1.0`).
 - After download, `versionCode` is compared again. A release tagged newer whose
   APK has a lower `versionCode` is refused — this also blocks downgrade attacks.
 
@@ -214,9 +218,14 @@ Do this for every release. The updater needs no code changes to pick it up.
 In `app/build.gradle`:
 
 ```groovy
-versionCode 3             // MUST increase by at least 1 on every release
-versionName "0.1.2-beta"  // MUST be MAJOR.MINOR.PATCH, optionally with -beta
+versionCode 4           // MUST increase by at least 1 on every release
+versionName "0.2.0"     // MUST be MAJOR.MINOR.PATCH, optionally with -beta
 ```
+
+Stay on the `0.x` line until every planned platform is implemented; `1.0.0` is
+the feature-complete release. A `-beta` suffix is only needed for an interim
+prerelease inside the `0.x` line; `0.x` tags are already published as
+pre-releases.
 
 `versionCode` is the authoritative monotonic counter Android uses to decide what
 is an upgrade. `versionName` is what users and the update screen display. If
@@ -228,7 +237,7 @@ If the bundled engine changed, also bump `__version__` in
 version.
 
 > Tags must match `versionName`, because the comparison is *release tag vs
-> installed `versionName`*. Tag `v0.1.2-beta`, not `v0.2`.
+> installed `versionName`*. Tag `v0.2.0`, not `v0.2`.
 
 ### 6.2 Build and sign
 
@@ -260,12 +269,12 @@ The recommended path is the GitHub Actions workflow
 writes `checksums.txt`, and creates the GitHub release. Push a matching tag:
 
 ```powershell
-git tag v0.1.2-beta
-git push origin v0.1.2-beta
+git tag v0.2.0
+git push origin v0.2.0
 ```
 
-Tags containing `-` are published as GitHub **pre-releases**; plain
-`vMAJOR.MINOR.PATCH` tags are published as stable releases.
+Pre-1.0 tags (`v0.x.y`) and tags containing `-` are published as GitHub
+**pre-releases**; `v1.0.0` and later are published as stable releases.
 
 The workflow needs these repository secrets once:
 
@@ -278,19 +287,19 @@ The workflow needs these repository secrets once:
 
 ### 6.4 Manual publishing (fallback)
 
-1. Create a release from the tag. Mark `-beta` tags as a **pre-release**; leave
-   stable releases as-is. Drafts are ignored by the app.
-2. Attach the signed APK, e.g. `Qivaryn-0.1.1-beta-universal.apk`.
+1. Create a release from the tag. Mark `0.x` and `-beta` releases as a
+   **pre-release**; leave `1.0.0`+ stable releases as-is. Drafts are ignored by
+   the app.
+2. Attach the signed APK, e.g. `Qivaryn-0.1.0-universal.apk`.
    - Include an ABI in the filename (`arm64-v8a`, `armeabi-v7a`, `x86_64`) or use
      `universal`. Do **not** put `debug` or `unsigned` in the name.
 3. Write release notes in the release body — they are shown verbatim in the app.
-   `docs/release-notes/v0.1.1-beta.md` is the template used by CI.
+   `docs/release-notes/v0.1.0.md` is the template used by CI.
 4. Attach a checksum:
    ```powershell
-   Get-FileHash .\Qivaryn-0.1.1-beta-universal.apk -Algorithm SHA256
+   Get-FileHash .\Qivaryn-0.1.0-universal.apk -Algorithm SHA256
    ```
-   either as `Qivaryn-0.1.1-beta-universal.apk.sha256` or as a `checksums.txt`
-   line.
+   either as `Qivaryn-0.1.0-universal.apk.sha256` or as a `checksums.txt` line.
 
 Create the base64 blob for the `QIVARYN_KEYSTORE_BASE64` secret with:
 

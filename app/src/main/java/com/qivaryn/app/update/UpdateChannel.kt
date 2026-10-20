@@ -7,9 +7,10 @@ package com.qivaryn.app.update
  * exactly like the repository itself, so neither the user nor another app can
  * retarget an installation at a different feed.
  *
- * [BETA] deliberately accepts stable releases too: a tester on `0.1.1-beta` must
- * still be able to move to `0.2.0` when the beta line is promoted, and SemVer
- * ordering already prevents a beta from being offered over a newer stable build.
+ * [BETA] deliberately accepts stable releases too: a tester on a `0.x` build
+ * must still be able to move to `1.0.0` once the app is feature-complete across
+ * every planned platform, and SemVer ordering already prevents a beta from being
+ * offered over a newer stable build.
  */
 enum class UpdateChannel(val wireName: String, val displayName: String) {
     STABLE("stable", "stable"),

@@ -16,7 +16,7 @@ def githubToken = (project.findProperty("qivaryn.githubToken") ?: "").toString()
 // Python package and must never be used as the APK update feed.
 def updateRepo = "usamanadim/Qivaryn_Android_app"
 
-// Beta builds follow prereleases (for example v0.1.1-beta) as well as stable
+// Beta builds follow prereleases (for example v0.2.0-beta) as well as stable
 // releases. Set `-Pqivaryn.updateChannel=stable` to build a stable-only app.
 def updateChannel = (project.findProperty("qivaryn.updateChannel") ?: "beta")
     .toString().trim().toLowerCase()
@@ -79,8 +79,10 @@ android {
         applicationId "com.qivaryn.app"
         minSdk 26
         targetSdk 36
-        versionCode 2
-        versionName "0.1.1-beta"
+        // Pre-1.0 while the app targets a single platform. 1.0.0 is reserved
+        // for the feature-complete, all-platforms release.
+        versionCode 3
+        versionName "0.1.0"
 
         // Source of truth for the in-app updater. Compiled in on purpose: an
         // update channel that could be retargeted at runtime would let anyone

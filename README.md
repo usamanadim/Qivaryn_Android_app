@@ -12,11 +12,15 @@ cannot use as an update.
 
 ## Current release
 
-The first public build is **`0.1.1-beta`** (version code 2), published as a
-GitHub pre-release. Grab
-`Qivaryn-0.1.1-beta-universal.apk` from the
+The first public build is **`0.1.0`** (version code 3), published as a GitHub
+pre-release on the beta channel. Grab `Qivaryn-0.1.0-universal.apk` from the
 [releases page](https://github.com/usamanadim/Qivaryn_Android_app/releases).
 Release notes live in [`docs/release-notes/`](docs/release-notes).
+
+The version stays on the `0.x` line while the app targets a single platform;
+`1.0.0` is reserved for the feature-complete release that works across every
+planned platform. Because `0.x` is pre-1.0, these tags are always published as
+pre-releases, so a stable-channel build never picks them up.
 
 ## Download location
 

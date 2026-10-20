@@ -10,8 +10,9 @@ name: Release
 #   QIVARYN_KEY_ALIAS          key alias, e.g. qivaryn
 #   QIVARYN_KEY_PASSWORD       key password
 #
-# Tags containing '-' (for example v0.1.1-beta) are published as pre-releases;
-# plain vMAJOR.MINOR.PATCH tags are published as stable releases.
+# Pre-1.0 releases are the beta line: any v0.x.y tag is published as a
+# pre-release, as is any tag containing '-' (for example v0.2.0-beta.1).
+# v1.0.0 and later are published as stable releases.
 
 on:
   push:
@@ -20,7 +21,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Existing tag to publish (e.g. v0.1.1-beta)"
+        description: "Existing tag to publish (e.g. v0.1.0)"
         required: true
 
 permissions:
@@ -53,9 +54,12 @@ jobs:
             exit 1
           fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          # 0.x is the pre-1.0 beta line, so it is never a stable release even
+          # when the tag has no "-suffix". 1.0.0 and later are stable.
           case "$TAG" in
-            *-*) echo "prerelease=true" >> "$GITHUB_OUTPUT" ;;
-            *)   echo "prerelease=false" >> "$GITHUB_OUTPUT" ;;
+            *-*)   echo "prerelease=true" >> "$GITHUB_OUTPUT" ;;
+            v0|v0.*) echo "prerelease=true" >> "$GITHUB_OUTPUT" ;;
+            *)     echo "prerelease=false" >> "$GITHUB_OUTPUT" ;;
           esac
 
       - name: Verify the tag matches versionName
