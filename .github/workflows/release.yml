@@ -90,7 +90,11 @@ jobs:
           SDK="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
           SDKM="$SDK/cmdline-tools/latest/bin/sdkmanager"
           mkdir -p "$SDK/licenses"
+          # `yes` exits with a broken pipe once sdkmanager stops reading; that is
+          # expected, so do not let pipefail fail the step.
+          set +o pipefail
           yes | "$SDKM" --licenses > /dev/null
+          set -o pipefail
           "$SDKM" --install "platforms;android-36" "build-tools;36.0.0"
           echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
 
