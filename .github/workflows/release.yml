@@ -1,0 +1,158 @@
+name: Release
+
+# Builds a signed APK and publishes it as a GitHub release. The in-app updater
+# reads this repository directly, so a successful run here is what makes the
+# update appear on users' devices.
+#
+# Required repository secrets (Settings -> Secrets and variables -> Actions):
+#   QIVARYN_KEYSTORE_BASE64    base64 of the release keystore
+#   QIVARYN_KEYSTORE_PASSWORD  keystore password
+#   QIVARYN_KEY_ALIAS          key alias, e.g. qivaryn
+#   QIVARYN_KEY_PASSWORD       key password
+#
+# Tags containing '-' (for example v0.1.1-beta) are published as pre-releases;
+# plain vMAJOR.MINOR.PATCH tags are published as stable releases.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to publish (e.g. v0.1.1-beta)"
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the tagged commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve the release tag
+        id: tag
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ inputs.tag }}"
+          else
+            TAG="${GITHUB_REF_NAME}"
+          fi
+          if [ -z "$TAG" ]; then
+            echo "No tag resolved" >&2
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          case "$TAG" in
+            *-*) echo "prerelease=true" >> "$GITHUB_OUTPUT" ;;
+            *)   echo "prerelease=false" >> "$GITHUB_OUTPUT" ;;
+          esac
+
+      - name: Verify the tag matches versionName
+        shell: bash
+        run: |
+          TAG="${{ steps.tag.outputs.tag }}"
+          VERSION="$(grep -oP 'versionName\s+"\K[^"]+' app/build.gradle | head -n1)"
+          EXPECTED="v${VERSION}"
+          if [ "$TAG" != "$EXPECTED" ]; then
+            echo "Tag $TAG does not match app/build.gradle versionName $VERSION (expected $EXPECTED)." >&2
+            exit 1
+          fi
+          echo "Publishing Qivaryn $VERSION from tag $TAG"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Python 3.11 (Chaquopy build interpreter)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up the Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install the compile SDK and build tools
+        shell: bash
+        run: |
+          sdkmanager --install "platforms;android-36" "build-tools;36.0.0"
+          yes | sdkmanager --licenses > /dev/null
+
+      - name: Decode the release keystore
+        shell: bash
+        env:
+          KEYSTORE_BASE64: ${{ secrets.QIVARYN_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "QIVARYN_KEYSTORE_BASE64 is not set; cannot build a signed release." >&2
+            exit 1
+          fi
+          mkdir -p keystore
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > keystore/qivaryn-release.jks
+
+      - name: Build the signed release APK
+        shell: bash
+        env:
+          QIVARYN_KEYSTORE_PATH: keystore/qivaryn-release.jks
+          QIVARYN_KEYSTORE_PASSWORD: ${{ secrets.QIVARYN_KEYSTORE_PASSWORD }}
+          QIVARYN_KEY_ALIAS: ${{ secrets.QIVARYN_KEY_ALIAS }}
+          QIVARYN_KEY_PASSWORD: ${{ secrets.QIVARYN_KEY_PASSWORD }}
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:assembleRelease --no-daemon
+
+      - name: Verify the APK is signed
+        shell: bash
+        run: |
+          APK="app/build/outputs/apk/release/app-release.apk"
+          test -f "$APK"
+          "${ANDROID_HOME}/build-tools/36.0.0/apksigner" verify --print-certs "$APK"
+
+      - name: Prepare release assets
+        id: assets
+        shell: bash
+        run: |
+          VERSION="$(grep -oP 'versionName\s+"\K[^"]+' app/build.gradle | head -n1)"
+          ASSET="Qivaryn-${VERSION}-universal.apk"
+          cp app/build/outputs/apk/release/app-release.apk "$ASSET"
+          sha256sum "$ASSET" | awk '{print $1"  "$2}' > checksums.txt
+          awk '{print $1}' checksums.txt > "${ASSET}.sha256"
+          echo "asset=$ASSET" >> "$GITHUB_OUTPUT"
+
+      - name: Publish the GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.tag.outputs.tag }}"
+          ASSET="${{ steps.assets.outputs.asset }}"
+          NOTES="docs/release-notes/${TAG}.md"
+          FLAGS=()
+          if [ "${{ steps.tag.outputs.prerelease }}" = "true" ]; then
+            FLAGS+=(--prerelease)
+          fi
+          if [ -f "$NOTES" ]; then
+            gh release create "$TAG" \
+              "$ASSET" "checksums.txt" "${ASSET}.sha256" \
+              --title "Qivaryn ${TAG}" \
+              --notes-file "$NOTES" \
+              "${FLAGS[@]}"
+          else
+            gh release create "$TAG" \
+              "$ASSET" "checksums.txt" "${ASSET}.sha256" \
+              --title "Qivaryn ${TAG}" \
+              --generate-notes \
+              "${FLAGS[@]}"
+          fi

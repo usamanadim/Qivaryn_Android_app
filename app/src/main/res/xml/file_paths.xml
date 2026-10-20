@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <files-path name="qivaryn_files" path="." />
+    <cache-path name="qivaryn_cache" path="." />
+    <external-files-path name="qivaryn_external" path="." />
+    <external-path name="qivaryn_public_downloads" path="Download/Qivaryn/" />
+</paths>

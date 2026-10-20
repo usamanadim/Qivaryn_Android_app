@@ -1,0 +1,6 @@
+plugins {
+    id 'com.android.application' version '9.4.1' apply false
+    // AGP 9.4.1 runs on Kotlin 2.2.10, so the Compose compiler plugin must match it.
+    id 'org.jetbrains.kotlin.plugin.compose' version '2.2.10' apply false
+    id 'com.chaquo.python' version '17.1.0' apply false
+}

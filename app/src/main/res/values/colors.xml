@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="md_theme_light_primary">#005C64</color>
+    <color name="md_theme_light_primaryContainer">#CFE1DA</color>
+    <color name="md_theme_light_onPrimary">#FFFFFF</color>
+    <color name="md_theme_light_secondary">#C0D5CC</color>
+    <color name="md_theme_light_secondaryContainer">#DDEBE5</color>
+    <color name="md_theme_light_onSecondary">#083A3D</color>
+    <color name="qivaryn_background">#F7F4ED</color>
+</resources>

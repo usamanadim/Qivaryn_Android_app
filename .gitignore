@@ -1,0 +1,30 @@
+# Gradle
+.gradle/
+build/
+app/build/
+
+# Android Studio / IntelliJ
+.idea/
+*.iml
+local.properties
+
+# Python
+__pycache__/
+*.py[cod]
+app/pip-*
+
+# Release signing must never be committed. Keep the keystore and its
+# credentials backed up somewhere safe, outside this repository.
+keystore.properties
+keystore/
+*.jks
+*.keystore
+
+# Local build output and device logs
+*.logcat
+build-output.txt
+py-req.txt
+
+# OS
+.DS_Store
+Thumbs.db
