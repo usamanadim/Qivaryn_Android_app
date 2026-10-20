@@ -1,0 +1,11 @@
+# Keep shell scripts and Gradle files LF-only so the Linux release workflow can
+# execute gradlew, even when the repository was last edited on Windows.
+* text=auto eol=lf
+*.bat text eol=crlf
+*.png binary
+*.jpg binary
+*.jks binary
+*.keystore binary
+*.so binary
+*.apk binary
+*.aab binary
