@@ -1,73 +1,53 @@
 # Qivaryn
 
-Qivaryn is a serverless, on-device Instagram media downloader built with Kotlin,
-Jetpack Compose, and a Python download engine.
+Qivaryn is a serverless Instagram media downloader for Android. The UI is Kotlin
+and Jetpack Compose; the downloader is the Qivaryn Python engine compiled into
+the APK. No server, no ads, no tracking.
 
-- **App repository / releases:** [`usamanadim/Qivaryn_Android_app`](https://github.com/usamanadim/Qivaryn_Android_app)
-- **Engine library:** [`usamanadim/qivaryn-engine`](https://github.com/usamanadim/qivaryn-engine)
+[**Download the 0.1.0 beta APK**](https://github.com/usamanadim/Qivaryn_Android_app/releases/download/v0.1.0/Qivaryn-0.1.0-universal.apk)
+· [Release notes](docs/release-notes/v0.1.0.md)
 
-The app's in-app updater reads **this repository's** releases. The engine
-repository publishes the Python package and CLI, which an installed Android app
-cannot use as an update.
+## Screenshots
 
-## Current release
+<p align="center">
+  <img src="screenshots/home.png" width="240" alt="Home screen">
+  <img src="screenshots/instagram.png" width="240" alt="Instagram download screen">
+  <img src="screenshots/update.png" width="240" alt="Software update screen">
+</p>
+<p align="center">
+  <img src="screenshots/downloads.png" width="240" alt="Downloads screen">
+  <img src="screenshots/settings.png" width="240" alt="Settings screen">
+</p>
 
-The first public build is **`0.1.0`** (version code 3), published as a GitHub
-pre-release on the beta channel. Grab `Qivaryn-0.1.0-universal.apk` from the
-[releases page](https://github.com/usamanadim/Qivaryn_Android_app/releases).
-Release notes live in [`docs/release-notes/`](docs/release-notes).
+## Features
 
-The version stays on the `0.x` line while the app targets a single platform;
-`1.0.0` is reserved for the feature-complete release that works across every
-planned platform. Because `0.x` is pre-1.0, these tags are always published as
-pre-releases, so a stable-channel build never picks them up.
+- Single posts, reels, and profiles
+- **All Reels** and **All Posts** bulk downloads
+- Saves to `Downloads/Qivaryn`, with history, thumbnails, open, and share
+- Persisted dark mode
+- Built-in updater on the beta channel
 
-## Download location
+## Install
 
-All successful downloads are published to the operating system's standard
-Downloads directory:
+1. Download `Qivaryn-0.1.0-universal.apk` from
+   [Releases](https://github.com/usamanadim/Qivaryn_Android_app/releases/tag/v0.1.0).
+2. Open the file and allow installing unknown apps if prompted.
+3. Requires Android 8.0 or newer (API 26).
 
-```
-Downloads/Qivaryn/
-```
-
-- Android 10+ uses MediaStore (`Download/Qivaryn`) so the folder works with
-  scoped storage.
-- Android 9 and below writes directly to the public Downloads directory after
-  requesting storage permission.
-- Existing private downloads from older versions are migrated into the public
-  folder on first launch.
-- Filename conflicts are resolved with `name (1).ext`, `name (2).ext`, etc.;
-  existing files are never overwritten.
-- Download history, thumbnails, file opening, and sharing all read from the
-  public folder. Failed downloads are shown with a **Failed** status and are
-  never added as completed media.
-
-## Instagram download scopes
-
-The Instagram screen offers:
-
-- **Single** — Post, Reel, or Profile media selection. Story and Highlights
-  are not supported by the engine yet.
-- **All Reels** — downloads every reel available from a profile URL using the
-  existing Python engine's account-Reels feed.
-- **All Posts** — downloads posts, videos, and carousels from a profile URL
-  using the engine's account feed, filtered to posts.
-
-Bulk operations run on a background thread, disable duplicate execution while
-active, and report completion or failure through status messages.
-
-## Appearance
-
-The Settings screen includes a persisted **Dark mode** switch. The complete UI
-uses a centralized palette via `QivarynColors`; the selected mode is restored
-on subsequent launches and applies immediately without restarting the app.
+This is a pre-1.0 beta. The version stays on the `0.x` line while the app targets
+one platform; `1.0.0` is reserved for the feature-complete, all-platforms
+release.
 
 ## Build
 
-A local release build needs Python 3.11 (Chaquopy's build interpreter) and, to
-be installable, a signing key supplied outside version control. Create a
-`keystore.properties` in the project root (git-ignored):
+Requires JDK 17, Android SDK 36, and Python 3.11 for Chaquopy.
+
+```powershell
+.\gradlew.bat :app:assembleDebug     # debug APK
+.\gradlew.bat :app:assembleRelease   # signed release
+```
+
+Release builds read signing details from a git-ignored `keystore.properties`:
 
 ```properties
 storeFile=keystore/qivaryn-release.jks
@@ -76,43 +56,21 @@ keyAlias=qivaryn
 keyPassword=…
 ```
 
-Then:
-
-```powershell
-.\gradlew.bat :app:assembleDebug     # unsigned debug build, no keystore needed
-.\gradlew.bat :app:assembleRelease   # signed with keystore.properties
-```
-
-Outputs:
-
-- debug: `app/build/outputs/apk/debug/app-debug.apk`
-- release: `app/build/outputs/apk/release/app-release.apk`
-
-Build a stable-only channel with `-Pqivaryn.updateChannel=stable`; the default
-is `beta`.
+The default update channel is `beta`. Build a stable-only channel with
+`-Pqivaryn.updateChannel=stable`.
 
 ## Updates
 
-Settings → **Software update** checks GitHub Releases in this repository for a
-newer build on the app's channel, shows the release notes, and installs it
-through Android's package installer. Because the Python engine is packaged
-inside the APK, an engine fix ships as a normal app update; the screen shows the
-app build and the bundled engine version side by side.
+Settings → **Software update** checks GitHub Releases in this repository,
+verifies the APK checksum and signature, and installs it through Android's
+package installer. Beta builds accept `0.x` pre-releases and stable releases;
+stable builds accept stable releases only.
 
-- **Beta channel** (default): sees `-beta` releases and stable releases.
-- **Stable channel**: sees stable releases only.
+Push a tag that matches `versionName` (for example `v0.1.0`) to publish a
+release. The [Release workflow](.github/workflows/release.yml) builds, signs,
+checksums, and publishes the APK automatically.
 
-Installing over the same package with the same signing key is an upgrade, so
-cookies, download history, settings, and `Downloads/Qivaryn` are preserved.
+## Links
 
-## Publishing a release
-
-Tag `vMAJOR.MINOR.PATCH` (add `-beta` for a pre-release) that matches
-`versionName` in `app/build.gradle` and push it. The
-[`Release` workflow](.github/workflows/release.yml) builds the signed APK,
-writes checksums, and creates the GitHub release automatically. This needs the
-`QIVARYN_KEYSTORE_BASE64`, `QIVARYN_KEYSTORE_PASSWORD`, `QIVARYN_KEY_ALIAS`, and
-`QIVARYN_KEY_PASSWORD` repository secrets.
-
-See [`docs/UPDATES.md`](docs/UPDATES.md) for the mechanism, the security model,
-the channel design, and the full release checklist.
+- [Qivaryn engine](https://github.com/usamanadim/qivaryn-engine)
+- [Update mechanism and release checklist](docs/UPDATES.md)
