@@ -1,6 +1,4 @@
 import os
-import shutil
-import subprocess
 import time
 import requests
 from tqdm import tqdm

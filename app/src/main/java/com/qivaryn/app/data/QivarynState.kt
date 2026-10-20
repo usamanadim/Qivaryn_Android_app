@@ -637,13 +637,6 @@ class QivarynState(val context: Context) {
         }.start()
     }
 
-    fun refreshCookieStatus(): Boolean {
-        val file = cookieFile()
-        cookiesImported = file.exists() && file.length() > 0L
-        cookieFileSize = if (cookiesImported) file.length() else 0L
-        return cookiesImported
-    }
-
     fun cookieStatusLabel(): String =
         if (cookiesImported) "Imported  ·  " + formatBytes(cookieFileSize) else "None"
 

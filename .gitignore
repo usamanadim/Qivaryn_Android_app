@@ -11,7 +11,7 @@ local.properties
 # Python
 __pycache__/
 *.py[cod]
-app/pip-*
+pip-*/
 
 # Release signing must never be committed. Keep the keystore and its
 # credentials backed up somewhere safe, outside this repository.

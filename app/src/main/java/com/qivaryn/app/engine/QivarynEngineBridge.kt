@@ -118,14 +118,6 @@ class QivarynEngineBridge(private val context: Context) {
         return result.toInt()
     }
 
-    fun downloadUrl(
-        url: String,
-        maxPages: Int? = null,
-        force: Boolean = false,
-        count: Int? = null,
-        mediaType: String? = null
-    ): Boolean = downloadUrlCount(url, maxPages, force, count, mediaType) > 0
-
     /**
      * Returns processed:downloaded:skipped:failed counters from the last engine
      * operation. Empty when the engine did not run an account feed.
@@ -208,7 +200,6 @@ class QivarynEngineBridge(private val context: Context) {
         val videoExtractor = MediaExtractor()
         val audioExtractor = MediaExtractor()
         var muxer: MediaMuxer? = null
-        var started = false
         var videoMime = ""
         var audioMime = ""
         return try {
@@ -261,7 +252,6 @@ class QivarynEngineBridge(private val context: Context) {
             val muxVideoTrack = muxer.addTrack(muxVideoFormat)
             val muxAudioTrack = muxer.addTrack(muxAudioFormat)
             muxer.start()
-            started = true
 
             val videoBuffer = ByteBuffer.allocateDirect(8 * 1024 * 1024)
             val audioBuffer = ByteBuffer.allocateDirect(8 * 1024 * 1024)
@@ -318,7 +308,6 @@ class QivarynEngineBridge(private val context: Context) {
             muxer.stop()
             muxer.release()
             muxer = null
-            started = false
             val ok = output.exists() && output.length() > 0L
             Log.d(TAG, "MediaMuxer finished, size=" + output.length() + ", ok=" + ok)
             ok
@@ -333,9 +322,7 @@ class QivarynEngineBridge(private val context: Context) {
             videoExtractor.release()
             audioExtractor.release()
             if (muxer != null) {
-                if (started) {
-                    runCatching { muxer.stop() }
-                }
+                runCatching { muxer.stop() }
                 runCatching { muxer.release() }
             }
             if (!output.exists() || output.length() == 0L) {
