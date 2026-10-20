@@ -386,11 +386,12 @@ class QivarynEngine:
 
                 if child["is_video"]:
                     if not self._download_video_stream(
-                        child["video_url"],
+                        child.get("video_url"),
                         child.get("audio_url"),
                         file_path,
                         f"[Carousel {idx}] {shortcode} ({child.get('quality', 'HQ')})",
-                        audio_start_ms=child.get("audio_start_ms")
+                        audio_start_ms=child.get("audio_start_ms"),
+                        fallback_url=child.get("progressive_url"),
                     ):
                         success_all = False
                 else:
@@ -414,8 +415,16 @@ class QivarynEngine:
                 return False
             audio_url = post.get("audio_url")
             audio_start_ms = post.get("audio_start_ms")
+            progressive_url = post.get("progressive_url")
             desc = f"[{media_type}] {shortcode} ({quality})"
-            if self._download_video_stream(video_url, audio_url, file_path, desc, audio_start_ms=audio_start_ms):
+            if self._download_video_stream(
+                video_url,
+                audio_url,
+                file_path,
+                desc,
+                audio_start_ms=audio_start_ms,
+                fallback_url=progressive_url,
+            ):
                 self.db.mark_downloaded(shortcode, media_type, timestamp, file_path)
                 return True
             return False
@@ -436,6 +445,7 @@ class QivarynEngine:
         file_path: str,
         desc: str,
         audio_start_ms: Optional[int] = None,
+        fallback_url: Optional[str] = None,
     ) -> bool:
         """Download video and optional audio, then mux them when possible."""
         temp_video = f"{file_path}.temp_v.mp4"
@@ -459,23 +469,30 @@ class QivarynEngine:
                             )
                         )
                     else:
-                        print("[-] Android FFmpeg bridge is unavailable.")
+                        print("[-] Android media merger bridge is unavailable.")
                 except Exception as exc:
                     print(f"[-] Audio merge failed for {desc}: {exc}")
                     merged = False
 
                 if merged:
                     print(f"[+] Merged audio into {desc}.")
-                    for temp in (temp_video, temp_audio):
-                        try:
-                            if temp and os.path.exists(temp):
-                                os.remove(temp)
-                        except OSError:
-                            pass
+                    self._remove_temporaries(temp_video, temp_audio)
                     return True
-                print(f"[-] Audio merge failed for {desc}; saving video-only.")
+                print(f"[-] Audio merge failed for {desc}.")
             else:
-                print(f"[-] Audio track download failed for {desc}; saving video-only.")
+                print(f"[-] Audio track download failed for {desc}.")
+
+            # The merge did not work. The progressive stream already contains
+            # the final audio track, so use it instead of a silent video.
+            if fallback_url and fallback_url != video_url:
+                print(
+                    f"[*] Falling back to the progressive stream for {desc} "
+                    "(audio included)."
+                )
+                if self._download_file(fallback_url, file_path, f"{desc} [Progressive]"):
+                    self._remove_temporaries(temp_video, temp_audio)
+                    return True
+                print(f"[-] Progressive fallback failed for {desc}.")
 
         if os.path.exists(file_path):
             try:
@@ -489,11 +506,19 @@ class QivarynEngine:
             print(f"[-] Could not save video for {desc}: {exc}")
             return False
         finally:
-            if temp_audio and os.path.exists(temp_audio):
-                try:
-                    os.remove(temp_audio)
-                except OSError:
-                    pass
+            self._remove_temporaries(temp_audio)
+
+    @staticmethod
+    def _remove_temporaries(*paths: Optional[str]) -> None:
+        """Deletes the temporary video/audio parts of a failed merge."""
+        for path in paths:
+            if not path:
+                continue
+            try:
+                if os.path.exists(path):
+                    os.remove(path)
+            except OSError:
+                pass
 
     def _report_progress(self, downloaded: int, total: int) -> None:
         """Forwards byte counts to the Android bridge, when one is attached."""

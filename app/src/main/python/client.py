@@ -882,13 +882,19 @@ class InstagramClient:
                     return res
         return None
 
-    def _select_best_video(self, item: dict) -> Tuple[Optional[str], Optional[str], str]:
-        """Returns (video_url, audio_url, quality_description) guaranteeing Full HD 1080p when available."""
+    def _select_best_video(self, item: dict) -> dict:
+        """Selects the best video and audio streams for an item.
+
+        The returned dict holds ``video_url``, ``audio_url``, ``quality``,
+        ``progressive_url`` (the stream that already contains the final audio)
+        and ``video_codec``.
+        """
         video_versions = item.get("video_versions", [])
         best_prog = None
         if video_versions:
             sorted_v = sorted(video_versions, key=lambda x: (x.get("width", 0) * x.get("height", 0), x.get("bandwidth", 0)), reverse=True)
             best_prog = sorted_v[0]
+        progressive_url = best_prog.get("url") if best_prog else None
 
         # Inspect all potential DASH manifests to find the highest-resolution video and highest-bandwidth audio
         dash_v = None
@@ -964,10 +970,11 @@ class InstagramClient:
                 else:
                     use_dash_video = False
 
-        # AV1 DASH video cannot be muxed by Android's MediaMuxer on all devices.
-        # A 1080p progressive stream already contains the final audio, so prefer
-        # it over an AV1-only DASH video to keep the reel audible.
         dash_codecs = str(dash_v.get("codecs", "")).lower() if dash_v else ""
+
+        # AV1 DASH video is muxed into the MP4 by Media3, but playback of AV1
+        # inside MP4 is still patchy on Android. A 1080p progressive stream
+        # already contains the final audio, so prefer it when it exists.
         if "av01" in dash_codecs and best_prog and prog_is_1080:
             use_dash_video = False
             print("[*] Preferring 1080p progressive stream (audio included) over AV1 DASH.")
@@ -980,19 +987,43 @@ class InstagramClient:
             if not audio_url and best_prog and item.get("has_audio") is not False:
                 audio_url = best_prog["url"]
 
-            return dash_v["url"], audio_url, f"{label} ({quality})"
+            return {
+                "video_url": dash_v["url"],
+                "audio_url": audio_url,
+                "quality": f"{label} ({quality})",
+                "progressive_url": progressive_url,
+                "video_codec": dash_codecs,
+            }
 
         if best_prog:
             label = f"{best_prog.get('width')}x{best_prog.get('height')}"
             quality = f"{label} (1080p Progressive)" if prog_is_1080 else label
-            return best_prog["url"], audio_url, quality
+            return {
+                "video_url": best_prog["url"],
+                "audio_url": audio_url,
+                "quality": quality,
+                "progressive_url": progressive_url,
+                "video_codec": str(best_prog.get("codecs", "")).lower(),
+            }
 
         if dash_v:
             label = dash_v.get("quality_label") or f"{dash_v.get('width')}x{dash_v.get('height')}"
             quality = "1080p DASH HQ" if dash_is_1080 else "DASH HQ"
-            return dash_v["url"], audio_url, f"{label} ({quality})"
+            return {
+                "video_url": dash_v["url"],
+                "audio_url": audio_url,
+                "quality": f"{label} ({quality})",
+                "progressive_url": progressive_url,
+                "video_codec": dash_codecs,
+            }
 
-        return None, None, "Unknown"
+        return {
+            "video_url": None,
+            "audio_url": None,
+            "quality": "Unknown",
+            "progressive_url": progressive_url,
+            "video_codec": "",
+        }
 
     def _parse_mobile_media_item(self, item: dict) -> dict:
         shortcode = item.get("code")
@@ -1004,6 +1035,7 @@ class InstagramClient:
         audio_start_ms = 0
         quality = "Original"
         display_url = None
+        progressive_url = None
         children_media = []
 
         if "image_versions2" in item:
@@ -1014,7 +1046,11 @@ class InstagramClient:
 
         if media_type_code == 2 or "video_versions" in item:
             media_type = "Reel"
-            video_url, audio_url, quality = self._select_best_video(item)
+            selection = self._select_best_video(item)
+            video_url = selection["video_url"]
+            audio_url = selection["audio_url"]
+            quality = selection["quality"]
+            progressive_url = selection["progressive_url"]
             prog_urls = [v.get("url") for v in item.get("video_versions", [])]
             if audio_url and audio_url in prog_urls:
                 audio_start_ms = 0
@@ -1036,7 +1072,11 @@ class InstagramClient:
                         sorted_c = sorted(c_cands, key=lambda x: x.get("width", 0) * x.get("height", 0), reverse=True)
                         c_img = sorted_c[0].get("url")
                 if child.get("media_type") == 2 or "video_versions" in child:
-                    c_vid, c_audio, c_qual = self._select_best_video(child)
+                    c_selection = self._select_best_video(child)
+                    c_vid = c_selection["video_url"]
+                    c_audio = c_selection["audio_url"]
+                    c_qual = c_selection["quality"]
+                    c_progressive = c_selection["progressive_url"]
                     c_prog_urls = [v.get("url") for v in child.get("video_versions", [])]
                     if c_audio and c_audio in c_prog_urls:
                         c_audio_start = 0
@@ -1045,12 +1085,15 @@ class InstagramClient:
                         c_audio_start = parent_audio_start
                     else:
                         _, c_audio_start = self._extract_audio_info(child)
+                else:
+                    c_progressive = None
                 children_media.append({
                     "display_url": c_img,
                     "video_url": c_vid,
                     "audio_url": c_audio,
                     "audio_start_ms": c_audio_start,
                     "quality": c_qual,
+                    "progressive_url": c_progressive,
                     "is_video": c_vid is not None
                 })
 
@@ -1063,6 +1106,7 @@ class InstagramClient:
             "audio_start_ms": audio_start_ms,
             "quality": quality,
             "display_url": display_url,
+            "progressive_url": progressive_url,
             "children": children_media,
         }
 
