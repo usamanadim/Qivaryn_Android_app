@@ -26,7 +26,7 @@ convenient.
 | --- | --- |
 | The Python engine lives in `app/src/main/python/` and is packaged into the APK by Chaquopy as read-only assets. | Engine code cannot be edited in place at runtime. |
 | The engine depends on pip packages (`requests`, `tqdm`) bundled at build time by Chaquopy. | A "drop in a new `.py` file" update could not change dependencies. |
-| Video muxing uses `libffmpeg.so` per ABI in `jniLibs/`. | Native binaries can only be replaced by installing a package. |
+| Video muxing uses Media3, a build-time dependency. | Codec support changes only in a new app release. |
 | The engine calls into Kotlin (`bridge.isPublished`, `bridge.mergeVideoAudio`, `bridge.onProgress`). | An engine update that needs a new bridge hook also needs new Kotlin. |
 | Engine state (`cookies.txt`, `qivaryn_state.db`) lives in `filesDir`, outside the APK. | It must survive updates — and it does. |
 

@@ -11,11 +11,14 @@ import com.chaquo.python.Python
 import com.qivaryn.app.data.DownloadDestination
 import java.io.File
 import java.nio.ByteBuffer
-import java.util.Locale
-import java.util.concurrent.TimeUnit
 
 class QivarynEngineBridge(private val context: Context) {
     private val TAG = "QivarynEngineBridge"
+
+    /** MediaFormat has no public constant for the codec-specific data keys. */
+    private val KEY_CSD_0 = "csd-0"
+    private val KEY_CSD_1 = "csd-1"
+
     private var engine: PyObject? = null
 
     /**
@@ -58,7 +61,7 @@ class QivarynEngineBridge(private val context: Context) {
     fun initEngine(outputDir: File, dbPath: File, cookiesFile: File? = null, sessionId: String? = null) {
         val py = Python.getInstance()
         val setupModule = py.getModule("chaquopy_setup")
-        setupModule.callAttr("setup_path", null, outputDir.absolutePath)
+        setupModule.callAttr("setup_path", outputDir.absolutePath)
 
         // Build the published-file index before the engine starts so its
         // resume checks can see files saved by previous runs.
@@ -75,7 +78,7 @@ class QivarynEngineBridge(private val context: Context) {
             cookiesFile?.absolutePath,
             3
         )
-        // Expose this Kotlin bridge to Python so it can request FFmpeg muxing.
+        // Expose this Kotlin bridge to Python so it can request media muxing.
         engine?.put("bridge", this)
         Log.d(TAG, "QivarynEngine initialized")
     }
@@ -150,8 +153,8 @@ class QivarynEngineBridge(private val context: Context) {
 
     /**
      * Muxes the separately downloaded Instagram audio track into the video
-     * file. Video is stream-copied to preserve the original quality; audio is
-     * stream-copied when possible and re-encoded to AAC only as a fallback.
+     * file. H.264 and H.265 are copied with MediaMuxer, which is lossless and
+     * instant. Other codecs (VP9, AV1) need Media3, which understands them.
      */
     fun mergeVideoAudio(
         videoPath: String,
@@ -169,58 +172,25 @@ class QivarynEngineBridge(private val context: Context) {
         output.parentFile?.mkdirs()
         output.delete()
 
-        Log.d(TAG, "Trying MediaMuxer audio merge for " + video.name)
-        if (mergeWithMediaMuxer(video, audio, output, audioStartMs)) {
-            Log.d(TAG, "Merged audio with MediaMuxer: " + output.name)
-            return true
-        }
-        Log.w(TAG, "MediaMuxer merge failed; trying FFmpeg fallback")
-        output.delete()
-        val ffmpeg = FFmpegHelper.getBinary(context) ?: run {
-            Log.w(TAG, "FFmpeg unavailable; audio merge skipped")
-            return false
-        }
-
-        fun buildCommand(audioCodec: String, bitrate: String?): List<String> {
-            val command = mutableListOf(
-                ffmpeg.absolutePath,
-                "-y",
-                "-i", video.absolutePath
-            )
-            if (audioStartMs != 0L) {
-                command += listOf(
-                    "-itsoffset",
-                    String.format(Locale.US, "%.3f", audioStartMs / 1000.0)
-                )
+        if (isMuxableVideoFile(video)) {
+            Log.d(TAG, "Trying MediaMuxer audio merge for " + video.name)
+            if (mergeWithMediaMuxer(video, audio, output, audioStartMs)) {
+                Log.d(TAG, "Merged audio with MediaMuxer: " + output.name)
+                return true
             }
-            command += listOf(
-                "-i", audio.absolutePath,
-                "-map", "0:v:0",
-                "-map", "1:a:0",
-                "-c:v", "copy",
-                "-c:a", audioCodec
-            )
-            if (bitrate != null) {
-                command += listOf("-b:a", bitrate)
-            }
-            command += listOf(
-                "-shortest",
-                "-movflags", "+faststart",
-                output.absolutePath
-            )
-            return command
+            Log.w(TAG, "MediaMuxer merge failed")
+            output.delete()
+        } else {
+            // Android's own MP4 writer only stores H.264 and H.265, so this
+            // stream has to go through Media3.
+            Log.i(TAG, "Video codec needs Media3: " + video.name)
         }
 
-        if (runFfmpeg(buildCommand("copy", null), "copy")) {
-            return true
-        }
-
-        output.delete()
-        if (runFfmpeg(buildCommand("aac", "192k"), "aac")) {
+        if (Media3Merger.merge(context, video, audio, output, audioStartMs)) {
+            Log.d(TAG, "Merged audio with Media3: " + output.name)
             return true
         }
         output.delete()
-
         return false
     }
 
@@ -239,6 +209,8 @@ class QivarynEngineBridge(private val context: Context) {
         val audioExtractor = MediaExtractor()
         var muxer: MediaMuxer? = null
         var started = false
+        var videoMime = ""
+        var audioMime = ""
         return try {
             videoExtractor.setDataSource(video.absolutePath)
             audioExtractor.setDataSource(audio.absolutePath)
@@ -252,13 +224,42 @@ class QivarynEngineBridge(private val context: Context) {
             audioExtractor.selectTrack(audioTrack)
             val videoFormat = videoExtractor.getTrackFormat(videoTrack)
             val audioFormat = audioExtractor.getTrackFormat(audioTrack)
+            videoMime = videoFormat.getString(MediaFormat.KEY_MIME).orEmpty()
+            audioMime = audioFormat.getString(MediaFormat.KEY_MIME).orEmpty()
+
+            if (!isMuxableVideoMime(videoMime)) {
+                Log.w(
+                    TAG,
+                    "MediaMuxer cannot store " + videoMime +
+                        " in an MP4; the caller falls back to the audio-bearing stream"
+                )
+                return false
+            }
+            if (!isMuxableAudioMime(audioMime)) {
+                Log.w(TAG, "MediaMuxer cannot store " + audioMime + " in an MP4")
+                return false
+            }
+
+            // MediaExtractor returns track formats that carry extra entries the
+            // MP4 writer rejects ("Failed to add the track to the muxer"), so
+            // rebuild a minimal format with only the keys the writer accepts.
+            val muxVideoFormat = muxableFormat(videoFormat)
+            if (muxVideoFormat == null) {
+                Log.e(TAG, "MediaMuxer: no usable video track format (" + videoMime + ")")
+                return false
+            }
+            val muxAudioFormat = muxableFormat(audioFormat)
+            if (muxAudioFormat == null) {
+                Log.e(TAG, "MediaMuxer: no usable audio track format (" + audioMime + ")")
+                return false
+            }
 
             muxer = MediaMuxer(
                 output.absolutePath,
                 MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4
             )
-            val muxVideoTrack = muxer.addTrack(videoFormat)
-            val muxAudioTrack = muxer.addTrack(audioFormat)
+            val muxVideoTrack = muxer.addTrack(muxVideoFormat)
+            val muxAudioTrack = muxer.addTrack(muxAudioFormat)
             muxer.start()
             started = true
 
@@ -322,7 +323,11 @@ class QivarynEngineBridge(private val context: Context) {
             Log.d(TAG, "MediaMuxer finished, size=" + output.length() + ", ok=" + ok)
             ok
         } catch (throwable: Throwable) {
-            Log.e(TAG, "MediaMuxer merge failed", throwable)
+            Log.e(
+                TAG,
+                "MediaMuxer merge failed (video=" + videoMime + ", audio=" + audioMime + ")",
+                throwable
+            )
             false
         } finally {
             videoExtractor.release()
@@ -347,35 +352,109 @@ class QivarynEngineBridge(private val context: Context) {
         return -1
     }
 
-    private fun runFfmpeg(command: List<String>, mode: String): Boolean {
-        var process: Process? = null
+    /** Android's MP4 writer only stores H.264 and H.265 video tracks. */
+    private fun isMuxableVideoMime(mime: String): Boolean =
+        mime.startsWith("video/avc") || mime.startsWith("video/hevc")
+
+    /** Reads the video track of a file and reports whether it fits an MP4. */
+    private fun isMuxableVideoFile(file: File): Boolean {
+        val extractor = MediaExtractor()
         return try {
-            Log.d(TAG, "Running FFmpeg (" + mode + "): " + command.joinToString(" "))
-            process = ProcessBuilder(command)
-                .redirectErrorStream(true)
-                .start()
-            val output = process.inputStream.bufferedReader().use { it.readText() }
-            val finished = process.waitFor(180, TimeUnit.SECONDS)
-            if (!finished) {
-                process.destroyForcibly()
-                Log.e(TAG, "FFmpeg timed out (" + mode + ")")
+            extractor.setDataSource(file.absolutePath)
+            val track = findTrack(extractor, "video/")
+            if (track < 0) {
+                Log.e(TAG, "No video track in " + file.name)
                 return false
             }
-            val exit = process.exitValue()
-            if (exit != 0) {
-                Log.e(TAG, "FFmpeg failed (" + mode + ", exit=" + exit + "): " + output.takeLast(2000))
-                false
-            } else {
-                val result = command.lastOrNull()?.let { File(it) }
-                val ok = result != null && result.exists() && result.length() > 0L
-                Log.d(TAG, "FFmpeg completed (" + mode + "), output size=" + (result?.length() ?: 0L))
-                ok
+            val mime = extractor.getTrackFormat(track).getString(MediaFormat.KEY_MIME).orEmpty()
+            val muxable = isMuxableVideoMime(mime)
+            if (!muxable) {
+                Log.w(TAG, "Video track " + mime + " in " + file.name + " is not MP4-compatible")
             }
+            muxable
         } catch (throwable: Throwable) {
-            Log.e(TAG, "FFmpeg execution failed (" + mode + ")", throwable)
+            Log.e(TAG, "Could not inspect the video track of " + file.name, throwable)
             false
         } finally {
-            if (process?.isAlive == true) process.destroy()
+            runCatching { extractor.release() }
         }
+    }
+
+    /** Android's MP4 writer stores AAC, AMR, Opus and uncompressed audio. */
+    private fun isMuxableAudioMime(mime: String): Boolean =
+        mime.startsWith("audio/mp4a") || mime.startsWith("audio/aac") ||
+            mime.startsWith("audio/amr") || mime.startsWith("audio/opus") ||
+            mime.startsWith("audio/3gpp") || mime.startsWith("audio/raw") ||
+            mime.startsWith("audio/mpeg")
+
+    /**
+     * Rebuilds a track format with only the keys the MP4 writer understands.
+     * Returns null when a required key is missing.
+     */
+    private fun muxableFormat(source: MediaFormat): MediaFormat? {
+        val mime = source.getString(MediaFormat.KEY_MIME) ?: return null
+        val clean = MediaFormat()
+        clean.setString(MediaFormat.KEY_MIME, mime)
+        return try {
+            if (mime.startsWith("video/")) {
+                clean.setInteger(MediaFormat.KEY_WIDTH, source.getInteger(MediaFormat.KEY_WIDTH))
+                clean.setInteger(MediaFormat.KEY_HEIGHT, source.getInteger(MediaFormat.KEY_HEIGHT))
+                if (source.containsKey(MediaFormat.KEY_ROTATION)) {
+                    clean.setInteger(
+                        MediaFormat.KEY_ROTATION,
+                        source.getInteger(MediaFormat.KEY_ROTATION)
+                    )
+                }
+            } else {
+                clean.setInteger(
+                    MediaFormat.KEY_SAMPLE_RATE,
+                    source.getInteger(MediaFormat.KEY_SAMPLE_RATE)
+                )
+                clean.setInteger(
+                    MediaFormat.KEY_CHANNEL_COUNT,
+                    source.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
+                )
+            }
+            copyByteBuffer(source, clean, KEY_CSD_0)
+            copyByteBuffer(source, clean, KEY_CSD_1)
+            if (!clean.containsKey(KEY_CSD_0)) {
+                copyParameterSets(source, clean)
+            }
+            if (source.containsKey(MediaFormat.KEY_MAX_INPUT_SIZE)) {
+                clean.setInteger(
+                    MediaFormat.KEY_MAX_INPUT_SIZE,
+                    source.getInteger(MediaFormat.KEY_MAX_INPUT_SIZE)
+                )
+            }
+            clean
+        } catch (throwable: Throwable) {
+            Log.e(TAG, "Cannot build a muxable track format for " + mime, throwable)
+            null
+        }
+    }
+
+    private fun copyByteBuffer(source: MediaFormat, target: MediaFormat, key: String) {
+        if (!source.containsKey(key)) return
+        val buffer = source.getByteBuffer(key)?.duplicate() ?: return
+        if (buffer.remaining() <= 0) return
+        val copy = ByteBuffer.allocateDirect(buffer.remaining())
+        copy.put(buffer)
+        copy.position(0)
+        target.setByteBuffer(key, copy)
+    }
+
+    /**
+     * Some extractors expose the H.264 parameter sets separately instead of
+     * the combined codec-specific data the MP4 writer needs.
+     */
+    private fun copyParameterSets(source: MediaFormat, target: MediaFormat) {
+        val sps = source.getByteBuffer("sps")?.duplicate() ?: return
+        val pps = source.getByteBuffer("pps")?.duplicate() ?: return
+        if (sps.remaining() <= 0 || pps.remaining() <= 0) return
+        val combined = ByteBuffer.allocate(sps.remaining() + pps.remaining())
+        combined.put(sps)
+        combined.put(pps)
+        combined.position(0)
+        target.setByteBuffer(KEY_CSD_0, combined)
     }
 }
