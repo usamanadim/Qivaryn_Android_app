@@ -81,14 +81,18 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Set up the Android SDK
-        uses: android-actions/setup-android@v3
-
       - name: Install the compile SDK and build tools
         shell: bash
         run: |
-          sdkmanager --install "platforms;android-36" "build-tools;36.0.0"
-          yes | sdkmanager --licenses > /dev/null
+          # The hosted runner already ships the Android SDK. `android-actions/
+          # setup-android` fails while installing the long-removed `tools`
+          # package, so use the preinstalled cmdline-tools directly.
+          SDK="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          SDKM="$SDK/cmdline-tools/latest/bin/sdkmanager"
+          mkdir -p "$SDK/licenses"
+          yes | "$SDKM" --licenses > /dev/null
+          "$SDKM" --install "platforms;android-36" "build-tools;36.0.0"
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
 
       - name: Decode the release keystore
         shell: bash
